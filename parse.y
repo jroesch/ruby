@@ -3825,10 +3825,9 @@ strings 	: string opt_string_sfx
             
             if (parser->frozen_strings) {
 			    node = str_suffix(node, tSTRING_SUFFIX);
-            }
-            else {
-                node = str_suffix(node, $2);
-            }
+			} else {
+			    node = str_suffix(node, $2);
+			}
     
 			$$ = node;
 		    /*%
@@ -3884,13 +3883,12 @@ xstring		: tXSTRING_BEG xstring_contents tSTRING_END
 			    }
 			}
             
-            if (parser->frozen_strings) {
+			if (parser->frozen_strings) {
 			    node = str_suffix(node, tSTRING_SUFFIX);
-            }
-            else {
-                node = str_suffix(node, $2);
-            }
-    
+			} else {
+			    node = str_suffix(node, $2);
+			}
+
 			$$ = node;
 		    /*%
 			$$ = dispatch1(xstring_literal, $2);
@@ -3899,7 +3897,7 @@ xstring		: tXSTRING_BEG xstring_contents tSTRING_END
 		;
 
 regexp		: tREGEXP_BEG regexp_contents tREGEXP_END
-		    {
+		  	{
 		    /*%%%*/
 			int options = $3;
 			NODE *node = $2;
