@@ -268,6 +268,7 @@ struct parser_params {
     VALUE parser_ruby_sourcefile_string;
     rb_encoding *enc;
 
+    int frozen_strings;
     int parser_yydebug;
 
     int last_cr_line;
@@ -3818,11 +3819,17 @@ strings 	: string opt_string_sfx
 			NODE *node = $1;
 			if (!node) {
 			    node = NEW_STR(STR_NEW0());
-			}
-			else {
+			} else {
 			    node = evstr2dstr(node);
 			}
-			node = str_suffix(node, $2);
+            
+            if (parser->frozen_strings) {
+			    node = str_suffix(node, tSTRING_SUFFIX);
+            }
+            else {
+                node = str_suffix(node, $2);
+            }
+    
 			$$ = node;
 		    /*%
 			$$ = $1;
@@ -3876,6 +3883,14 @@ xstring		: tXSTRING_BEG xstring_contents tSTRING_END
 				break;
 			    }
 			}
+            
+            if (parser->frozen_strings) {
+			    node = str_suffix(node, tSTRING_SUFFIX);
+            }
+            else {
+                node = str_suffix(node, $2);
+            }
+    
 			$$ = node;
 		    /*%
 			$$ = dispatch1(xstring_literal, $2);
@@ -6748,6 +6763,12 @@ parser_set_token_info(struct parser_params *parser, const char *name, const char
     rb_compile_warning(ruby_sourcefile, ruby_sourceline, "invalid value for %s: %s", name, val);
 }
 
+static void
+magic_comment_freeze_strings(struct parser_params *parser, const char *name, const char *val)
+{
+    parser->frozen_strings = 1;
+}
+
 struct magic_comment {
     const char *name;
     rb_magic_comment_setter_t func;
@@ -6758,6 +6779,7 @@ static const struct magic_comment magic_comments[] = {
     {"coding", magic_comment_encoding, parser_encode_length},
     {"encoding", magic_comment_encoding, parser_encode_length},
     {"warn_indent", parser_set_token_info},
+    {"freeze", magic_comment_freeze_strings},
 };
 #endif
 
@@ -6954,6 +6976,7 @@ parser_prepare(struct parser_params *parser)
     }
     pushback(c);
     parser->enc = rb_enc_get(lex_lastline);
+    parser->frozen_strings = 0;
 }
 
 #define IS_ARG() IS_lex_state(EXPR_ARG_ANY)
