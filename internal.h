@@ -70,6 +70,12 @@ extern "C" {
 #define MUL_OVERFLOW_INT_P(a, b) MUL_OVERFLOW_SIGNED_INTEGER_P(a, b, INT_MIN, INT_MAX)
 
 #ifndef swap16
+# ifdef HAVE_BUILTIN___BUILTIN_BSWAP16
+#  define swap16(x) __builtin_bswap16(x)
+# endif
+#endif
+
+#ifndef swap16
 # define swap16(x)      ((uint16_t)((((x)&0xFF)<<8) | (((x)>>8)&0xFF)))
 #endif
 
@@ -433,9 +439,15 @@ void rb_objspace_set_event_hook(const rb_event_flag_t event);
 void rb_gc_writebarrier_remember_promoted(VALUE obj);
 void ruby_gc_set_params(void);
 
+#if HAVE_MALLOC_USABLE_SIZE || defined(_WIN32)
+#define ruby_sized_xrealloc(ptr, new_size, old_size) ruby_xrealloc(ptr, new_size)
+#define ruby_sized_xfree(ptr, size) ruby_xfree(ptr)
+#define SIZED_REALLOC_N(var,type,n,old_n) REALLOC_N(var, type, n)
+#else
 void *ruby_sized_xrealloc(void *ptr, size_t new_size, size_t old_size) RUBY_ATTR_ALLOC_SIZE((2));
 void ruby_sized_xfree(void *x, size_t size);
 #define SIZED_REALLOC_N(var,type,n,old_n) ((var)=(type*)ruby_sized_xrealloc((char*)(var), (n) * sizeof(type), (old_n) * sizeof(type)))
+#endif
 
 void rb_gc_resurrect(VALUE ptr);
 
@@ -739,13 +751,15 @@ void rb_print_backtrace(void);
 /* vm_eval.c */
 void Init_vm_eval(void);
 VALUE rb_current_realfilepath(void);
-VALUE rb_check_block_call(VALUE, ID, int, VALUE *, VALUE (*)(ANYARGS), VALUE);
+VALUE rb_check_block_call(VALUE, ID, int, const VALUE *, rb_block_call_func_t, VALUE);
 typedef void rb_check_funcall_hook(int, VALUE, ID, int, const VALUE *, VALUE);
 VALUE rb_check_funcall_with_hook(VALUE recv, ID mid, int argc, const VALUE *argv,
 				 rb_check_funcall_hook *hook, VALUE arg);
 
 /* vm_insnhelper.c */
 VALUE rb_equal_opt(VALUE obj1, VALUE obj2);
+void rb_check_keyword_opthash(VALUE keyword_hash, const ID *table, int required, int optional);
+VALUE rb_extract_keywords(VALUE *orighash);
 
 /* vm_method.c */
 void Init_eval_method(void);

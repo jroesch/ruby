@@ -32,6 +32,8 @@ class Gem::Resolver::VendorSet < Gem::Resolver::Set
     raise Gem::GemNotFoundException,
           "unable to find #{gemspec} for gem #{name}" unless spec
 
+    spec.full_gem_path = File.expand_path directory
+
     key = "#{spec.name}-#{spec.version}-#{spec.platform}"
 
     @specs[key]        = spec
@@ -60,6 +62,21 @@ class Gem::Resolver::VendorSet < Gem::Resolver::Set
     key = "#{name}-#{version}-#{platform}"
 
     @specs.fetch key
+  end
+
+  def pretty_print q # :nodoc:
+    q.group 2, '[VendorSet', ']' do
+      next if @directories.empty?
+      q.breakable
+
+      dirs = @directories.map do |spec, directory|
+        "#{spec.full_name}: #{directory}"
+      end
+
+      q.seplist dirs do |dir|
+        q.text dir
+      end
+    end
   end
 
 end

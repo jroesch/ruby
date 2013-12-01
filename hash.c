@@ -76,10 +76,17 @@ rb_any_cmp(VALUE a, VALUE b)
     return !rb_eql(a, b);
 }
 
+static VALUE
+hash_recursive(VALUE obj, VALUE arg, int recurse)
+{
+    if (recurse) return INT2FIX(0);
+    return rb_funcallv(obj, id_hash, 0, 0);
+}
+
 VALUE
 rb_hash(VALUE obj)
 {
-    VALUE hval = rb_funcall(obj, id_hash, 0);
+    VALUE hval = rb_exec_recursive(hash_recursive, obj, 0);
   retry:
     switch (TYPE(hval)) {
       case T_FIXNUM:
@@ -569,6 +576,11 @@ rb_hash_s_try_convert(VALUE dummy, VALUE hash)
     return rb_check_hash_type(hash);
 }
 
+struct rehash_arg {
+    VALUE hash;
+    st_table *tbl;
+};
+
 static int
 rb_hash_rehash_i(VALUE key, VALUE value, VALUE arg)
 {
@@ -576,6 +588,14 @@ rb_hash_rehash_i(VALUE key, VALUE value, VALUE arg)
 
     st_insert(tbl, (st_data_t)key, (st_data_t)value);
     return ST_CONTINUE;
+}
+
+static VALUE
+rehash_func(VALUE arg)
+{
+    struct rehash_arg *p = (struct rehash_arg *)arg;
+    rb_hash_foreach(p->hash, rb_hash_rehash_i, (VALUE)p->tbl);
+    return Qnil;
 }
 
 /*
@@ -601,18 +621,30 @@ rb_hash_rehash_i(VALUE key, VALUE value, VALUE arg)
 static VALUE
 rb_hash_rehash(VALUE hash)
 {
-    st_table *tbl;
+    int state;
+    struct rehash_arg arg;
+    st_table *new_tbl, *old_tbl = RHASH(hash)->ntbl;
 
     if (RHASH_ITER_LEV(hash) > 0) {
 	rb_raise(rb_eRuntimeError, "rehash during iteration");
     }
     rb_hash_modify_check(hash);
-    if (!RHASH(hash)->ntbl)
-        return hash;
-    tbl = st_init_table_with_size(RHASH(hash)->ntbl->type, RHASH(hash)->ntbl->num_entries);
-    rb_hash_foreach(hash, rb_hash_rehash_i, (VALUE)tbl);
-    st_free_table(RHASH(hash)->ntbl);
-    RHASH(hash)->ntbl = tbl;
+    if (!old_tbl) return hash;
+
+    new_tbl = st_init_table_with_size(old_tbl->type, old_tbl->num_entries);
+    arg.hash = hash;
+    arg.tbl = new_tbl;
+
+    rb_protect(rehash_func, (VALUE)&arg, &state);
+
+    if (state) {
+	st_free_table(new_tbl);
+	rb_jump_tag(state);
+    }
+    else {
+	st_free_table(RHASH(hash)->ntbl);
+	RHASH(hash)->ntbl = new_tbl;
+    }
 
     return hash;
 }
@@ -1255,7 +1287,9 @@ static int
 hash_aset_str(st_data_t *key, st_data_t *val, struct update_arg *arg, int existing)
 {
     if (!existing) {
-	*key = rb_str_new_frozen((VALUE)*key);
+	VALUE str = (VALUE)*key;
+	if (!OBJ_FROZEN(str))
+	    *key = rb_fstring(str);
     }
     return hash_aset(key, val, arg, existing);
 }
@@ -1572,7 +1606,7 @@ rb_hash_to_a(VALUE hash)
 {
     VALUE ary;
 
-    ary = rb_ary_new();
+    ary = rb_ary_new_capa(RHASH_SIZE(hash));
     rb_hash_foreach(hash, to_a_i, ary);
     OBJ_INFECT(ary, hash);
 
@@ -1693,12 +1727,26 @@ keys_i(VALUE key, VALUE value, VALUE ary)
 VALUE
 rb_hash_keys(VALUE hash)
 {
-    VALUE ary;
+    VALUE keys;
+    st_index_t size = RHASH_SIZE(hash);
 
-    ary = rb_ary_new_capa(RHASH_SIZE(hash));
-    rb_hash_foreach(hash, keys_i, ary);
+    keys = rb_ary_new_capa(size);
+    if (size == 0) return keys;
 
-    return ary;
+    if (ST_DATA_COMPATIBLE_P(VALUE)) {
+	st_table *table = RHASH(hash)->ntbl;
+
+	if (OBJ_PROMOTED(keys)) rb_gc_writebarrier_remember_promoted(keys);
+	RARRAY_PTR_USE(keys, ptr, {
+	    size = st_keys_check(table, ptr, size, Qundef);
+	});
+	rb_ary_set_len(keys, size);
+    }
+    else {
+	rb_hash_foreach(hash, keys_i, keys);
+    }
+
+    return keys;
 }
 
 static int
@@ -1723,12 +1771,26 @@ values_i(VALUE key, VALUE value, VALUE ary)
 VALUE
 rb_hash_values(VALUE hash)
 {
-    VALUE ary;
+    VALUE values;
+    st_index_t size = RHASH_SIZE(hash);
 
-    ary = rb_ary_new_capa(RHASH_SIZE(hash));
-    rb_hash_foreach(hash, values_i, ary);
+    values = rb_ary_new_capa(size);
+    if (size == 0) return values;
 
-    return ary;
+    if (ST_DATA_COMPATIBLE_P(VALUE)) {
+	st_table *table = RHASH(hash)->ntbl;
+
+	if (OBJ_PROMOTED(values)) rb_gc_writebarrier_remember_promoted(values);
+	RARRAY_PTR_USE(values, ptr, {
+	    size = st_values_check(table, ptr, size, Qundef);
+	});
+	rb_ary_set_len(values, size);
+    }
+    else {
+	rb_hash_foreach(hash, values_i, values);
+    }
+
+    return values;
 }
 
 /*
@@ -1937,7 +1999,7 @@ recursive_hash(VALUE hash, VALUE dummy, int recur)
 static VALUE
 rb_hash_hash(VALUE hash)
 {
-    return rb_exec_recursive_outer(recursive_hash, hash, 0);
+    return rb_exec_recursive_paired(recursive_hash, hash, hash, 0);
 }
 
 static int

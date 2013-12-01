@@ -171,10 +171,10 @@ r_value(VALUE value)
   (((rb_iseq_t*)DATA_PTR(iseq))->location.absolute_path)
 
 #define NEW_ISEQVAL(node, name, type, line_no)       \
-  new_child_iseq(iseq, (node), (name), 0, (type), (line_no))
+  new_child_iseq(iseq, (node), rb_fstring(name), 0, (type), (line_no))
 
 #define NEW_CHILD_ISEQVAL(node, name, type, line_no)       \
-  new_child_iseq(iseq, (node), (name), iseq->self, (type), (line_no))
+  new_child_iseq(iseq, (node), rb_fstring(name), iseq->self, (type), (line_no))
 
 /* add instructions */
 #define ADD_SEQ(seq1, seq2) \
@@ -324,7 +324,6 @@ static void debug_list(ISEQ_ARG_DECLARE LINK_ANCHOR *anchor);
 static void dump_disasm_list(LINK_ELEMENT *elem);
 
 static int insn_data_length(INSN *iobj);
-static int insn_data_line_no(INSN *iobj);
 static int calc_sp_depth(int depth, INSN *iobj);
 
 static INSN *new_insn_body(rb_iseq_t *iseq, int line_no, int insn_id, int argc, ...);
@@ -2254,15 +2253,16 @@ compile_dstr_fragments(rb_iseq_t *iseq, LINK_ANCHOR *ret, NODE *node, int *cntp)
 
     debugp_param("nd_lit", lit);
     if (!NIL_P(lit)) {
-	hide_obj(lit);
 	cnt++;
+	if (RB_TYPE_P(lit, T_STRING))
+	    lit = node->nd_lit = rb_fstring(node->nd_lit);
 	ADD_INSN1(ret, nd_line(node), putobject, lit);
     }
 
     while (list) {
 	node = list->nd_head;
 	if (nd_type(node) == NODE_STR) {
-	    hide_obj(node->nd_lit);
+	    node->nd_lit = rb_fstring(node->nd_lit);
 	    ADD_INSN1(ret, nd_line(node), putobject, node->nd_lit);
 	}
 	else {
@@ -2515,7 +2515,7 @@ case_when_optimizable_literal(NODE * node)
 	break;
       }
       case NODE_STR:
-	return node->nd_lit;
+	return node->nd_lit = rb_fstring(node->nd_lit);
     }
     return Qundef;
 }
@@ -2542,8 +2542,8 @@ when_vals(rb_iseq_t *iseq, LINK_ANCHOR *cond_seq, NODE *vals, LABEL *l1, int onl
 	ADD_INSN(cond_seq, nd_line(val), dup); /* dup target */
 
 	if (nd_type(val) == NODE_STR) {
+	    val->nd_lit = rb_fstring(val->nd_lit);
 	    debugp_param("nd_lit", val->nd_lit);
-	    OBJ_FREEZE(val->nd_lit);
 	    ADD_INSN1(cond_seq, nd_line(val), putobject, val->nd_lit);
 	}
 	else {
@@ -4798,9 +4798,9 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *ret, NODE * node, int poped)
 	break;
       }
       case NODE_STR:{
+	node->nd_lit = rb_fstring(node->nd_lit);
 	debugp_param("nd_lit", node->nd_lit);
 	if (!poped) {
-	    OBJ_FREEZE(node->nd_lit);
 	    ADD_INSN1(ret, line, putstring, node->nd_lit);
 	}
 	break;
@@ -4814,7 +4814,7 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *ret, NODE * node, int poped)
 	break;
       }
       case NODE_XSTR:{
-	OBJ_FREEZE(node->nd_lit);
+	node->nd_lit = rb_fstring(node->nd_lit);
 	ADD_CALL_RECEIVER(ret, line);
 	ADD_INSN1(ret, line, putobject, node->nd_lit);
 	ADD_CALL(ret, line, ID2SYM(idBackquote), INT2FIX(1));
@@ -4908,7 +4908,7 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *ret, NODE * node, int poped)
       }
       case NODE_DEFN:{
 	VALUE iseqval = NEW_ISEQVAL(node->nd_defn,
-				    rb_str_dup(rb_id2str(node->nd_mid)),
+				    rb_id2str(node->nd_mid),
 				    ISEQ_TYPE_METHOD, line);
 
 	debugp_param("defn/iseq", iseqval);
@@ -4928,7 +4928,7 @@ iseq_compile_each(rb_iseq_t *iseq, LINK_ANCHOR *ret, NODE * node, int poped)
       }
       case NODE_DEFS:{
 	VALUE iseqval = NEW_ISEQVAL(node->nd_defn,
-				    rb_str_dup(rb_id2str(node->nd_mid)),
+				    rb_id2str(node->nd_mid),
 				    ISEQ_TYPE_METHOD, line);
 
 	debugp_param("defs/iseq", iseqval);
@@ -5393,16 +5393,29 @@ calc_sp_depth(int depth, INSN *insn)
     return insn_stack_increase(depth, insn->insn_id, insn->operands);
 }
 
-static int
-insn_data_line_no(INSN *iobj)
+static VALUE
+opobj_inspect(VALUE obj)
 {
-    return insn_len(iobj->line_no);
+    struct RBasic *r = (struct RBasic *) obj;
+    if (!SPECIAL_CONST_P(r)  && r->klass == 0) {
+	switch (BUILTIN_TYPE(r)) {
+	  case T_STRING:
+	    obj = rb_str_new_cstr(RSTRING_PTR(obj));
+	    break;
+	  case T_ARRAY:
+	    obj = rb_ary_dup(obj);
+	    break;
+	}
+    }
+    return rb_inspect(obj);
 }
+
+
 
 static VALUE
 insn_data_to_s_detail(INSN *iobj)
 {
-    VALUE str = rb_sprintf("%-16s", insn_name(iobj->insn_id));
+    VALUE str = rb_sprintf("%-20s ", insn_name(iobj->insn_id));
 
     if (iobj->operands) {
 	const char *types = insn_op_types(iobj->insn_id);
@@ -5410,7 +5423,6 @@ insn_data_to_s_detail(INSN *iobj)
 
 	for (j = 0; types[j]; j++) {
 	    char type = types[j];
-	    printf("str: %"PRIxVALUE", type: %c\n", str, type);
 
 	    switch (type) {
 	      case TS_OFFSET:	/* label(destination position) */
@@ -5427,7 +5439,7 @@ insn_data_to_s_detail(INSN *iobj)
 		    if (0 && iseq) { /* TODO: invalidate now */
 			val = iseq->self;
 		    }
-		    rb_str_concat(str, rb_inspect(val));
+		    rb_str_concat(str, opobj_inspect(val));
 		}
 		break;
 	      case TS_LINDEX:
@@ -5435,11 +5447,11 @@ insn_data_to_s_detail(INSN *iobj)
 	      case TS_VALUE:	/* VALUE */
 		{
 		    VALUE v = OPERAND_AT(iobj, j);
-		    rb_str_concat(str, rb_inspect(v));
+		    rb_str_concat(str, opobj_inspect(v));
 		    break;
 		}
 	      case TS_ID:	/* ID */
-		rb_str_concat(str, rb_inspect(OPERAND_AT(iobj, j)));
+		rb_str_concat(str, opobj_inspect(OPERAND_AT(iobj, j)));
 		break;
 	      case TS_GENTRY:
 		{
@@ -5488,7 +5500,7 @@ dump_disasm_list(struct iseq_link_element *link)
 	    {
 		iobj = (INSN *)link;
 		str = insn_data_to_s_detail(iobj);
-		printf("%04d %-65s(%4d)\n", pos, StringValueCStr(str), insn_data_line_no(iobj));
+		printf("%04d %-65s(%4d)\n", pos, StringValueCStr(str), iobj->line_no);
 		pos += insn_data_length(iobj);
 		break;
 	    }
@@ -5506,7 +5518,7 @@ dump_disasm_list(struct iseq_link_element *link)
 	  case ISEQ_ELEMENT_ADJUST:
 	    {
 		ADJUST *adjust = (ADJUST *)link;
-		printf("adjust: [label: %d]\n", adjust->label->label_no);
+		printf("adjust: [label: %d]\n", adjust->label ? adjust->label->label_no : -1);
 		break;
 	    }
 	  default:
@@ -5530,7 +5542,7 @@ rb_insns_name_array(void)
     VALUE ary = rb_ary_new();
     int i;
     for (i = 0; i < numberof(insn_name_info); i++) {
-	rb_ary_push(ary, rb_obj_freeze(rb_str_new2(insn_name_info[i])));
+	rb_ary_push(ary, rb_fstring(rb_str_new2(insn_name_info[i])));
     }
     return rb_obj_freeze(ary);
 }

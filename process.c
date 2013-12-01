@@ -2500,28 +2500,16 @@ redirect_dup(int oldfd)
     ttyprintf("dup(%d) => %d\n", oldfd, ret);
     return ret;
 }
-#else
-#define redirect_dup(oldfd) dup(oldfd)
-#endif
 
-#if defined(DEBUG_REDIRECT) || defined(_WIN32)
 static int
 redirect_dup2(int oldfd, int newfd)
 {
     int ret;
     ret = dup2(oldfd, newfd);
-    if (newfd >= 0 && newfd <= 2)
-	SetStdHandle(newfd == 0 ? STD_INPUT_HANDLE : newfd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE, (HANDLE)rb_w32_get_osfhandle(newfd));
-#if defined(DEBUG_REDIRECT)
     ttyprintf("dup2(%d, %d)\n", oldfd, newfd);
-#endif
     return ret;
 }
-#else
-#define redirect_dup2(oldfd, newfd) dup2((oldfd), (newfd))
-#endif
 
-#if defined(DEBUG_REDIRECT)
 static int
 redirect_close(int fd)
 {
@@ -2541,6 +2529,8 @@ redirect_open(const char *pathname, int flags, mode_t perm)
 }
 
 #else
+#define redirect_dup(oldfd) dup(oldfd)
+#define redirect_dup2(oldfd, newfd) dup2((oldfd), (newfd))
 #define redirect_close(fd) close(fd)
 #define redirect_open(pathname, flags, perm) open((pathname), (flags), (perm))
 #endif
@@ -2898,7 +2888,7 @@ run_exec_rlimit(VALUE ary, struct rb_execarg *sargp, char *errmsg, size_t errmsg
 
 #if !defined(HAVE_FORK)
 static VALUE
-save_env_i(VALUE i, VALUE ary, int argc, VALUE *argv)
+save_env_i(RB_BLOCK_CALL_FUNC_ARGLIST(i, ary))
 {
     rb_ary_push(ary, hide_obj(rb_ary_dup(argv[0])));
     return Qnil;

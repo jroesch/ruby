@@ -136,6 +136,11 @@ VALUE
 rb_fstring(VALUE str)
 {
     st_data_t fstr;
+    Check_Type(str, T_STRING);
+
+    if (FL_TEST(str, RSTRING_FSTR))
+	return str;
+
     if (st_lookup(frozen_strings, (st_data_t)str, &fstr)) {
 	str = (VALUE)fstr;
 	/* because of lazy sweep, str may be unmaked already and swept
@@ -143,7 +148,14 @@ rb_fstring(VALUE str)
 	rb_gc_resurrect(str);
     }
     else {
-	str = rb_str_new_frozen(str);
+	if (STR_SHARED_P(str)) {
+	    /* str should not be shared */
+	    str = rb_enc_str_new(RSTRING_PTR(str), RSTRING_LEN(str), STR_ENC_GET(str));
+	    OBJ_FREEZE(str);
+	}
+	else {
+	    str = rb_str_new_frozen(str);
+	}
 	RBASIC(str)->flags |= RSTRING_FSTR;
 	st_insert(frozen_strings, str, str);
     }
@@ -749,6 +761,9 @@ str_new4(VALUE klass, VALUE str)
 	STR_SET_SHARED(str2, shared); /* TODO: WB is not needed because str2 is *new* object */
     }
     else {
+	if (!STR_ASSOC_P(str)) {
+	    RSTRING(str2)->as.heap.aux.capa = RSTRING(str)->as.heap.aux.capa;
+	}
 	STR_SET_SHARED(str, str2);
     }
     rb_enc_cr_str_exact_copy(str2, str);
@@ -879,7 +894,7 @@ rb_str_free(VALUE str)
 RUBY_FUNC_EXPORTED size_t
 rb_str_memsize(VALUE str)
 {
-    if (!STR_EMBED_P(str) && !STR_SHARED_P(str)) {
+    if (FL_TEST(str, STR_NOEMBED|ELTS_SHARED) == STR_NOEMBED) {
 	return STR_HEAP_SIZE(str);
     }
     else {
@@ -1973,13 +1988,12 @@ rb_str_resize(VALUE str, long len)
 	}
 	else if (len + termlen <= RSTRING_EMBED_LEN_MAX + 1) {
 	    char *ptr = STR_HEAP_PTR(str);
-	    size_t size = STR_HEAP_SIZE(str);
 	    STR_SET_EMBED(str);
 	    if (slen > len) slen = len;
 	    if (slen > 0) MEMCPY(RSTRING(str)->as.ary, ptr, char, slen);
 	    TERM_FILL(RSTRING(str)->as.ary + len, termlen);
 	    STR_SET_EMBED_LEN(str, len);
-	    if (independent) ruby_sized_xfree(ptr, size);
+	    if (independent) ruby_xfree(ptr);
 	    return str;
 	}
 	else if (!independent) {

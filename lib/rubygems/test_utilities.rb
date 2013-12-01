@@ -101,6 +101,24 @@ class Gem::FakeFetcher
     response
   end
 
+  def pretty_print q # :nodoc:
+    q.group 2, '[FakeFetcher', ']' do
+      q.breakable
+      q.text 'URIs:'
+
+      q.breakable
+      q.pp @data.keys
+
+      unless @api_endpoints.empty? then
+        q.breakable
+        q.text 'API endpoints:'
+
+        q.breakable
+        q.pp @api_endpoints.keys
+      end
+    end
+  end
+
   def fetch_size(path)
     path = path.to_s
     @paths << path
@@ -205,6 +223,10 @@ class Gem::TestCase::SpecFetcherSetup
     @operations << [:clear]
   end
 
+  ##
+  # Returns a Hash of created Specification full names and the corresponding
+  # Specification.
+
   def created_specs
     created = {}
 
@@ -271,7 +293,7 @@ class Gem::TestCase::SpecFetcherSetup
     end
   end
 
-  def setup_fetcher # :nodoc;
+  def setup_fetcher # :nodoc:
     require 'zlib'
     require 'socket'
     require 'rubygems/remote_fetcher'

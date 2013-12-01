@@ -219,13 +219,12 @@ ary_resize_capa(VALUE ary, long capacity)
         if (!ARY_EMBED_P(ary)) {
             long len = RARRAY_LEN(ary);
 	    const VALUE *ptr = RARRAY_CONST_PTR(ary);
-	    size_t size = ARY_HEAP_SIZE(ary);
 
 	    if (len > capacity) len = capacity;
             MEMCPY((VALUE *)RARRAY(ary)->as.ary, ptr, VALUE, len);
             FL_SET_EMBED(ary);
             ARY_SET_LEN(ary, len);
-	    ruby_sized_xfree((VALUE *)ptr, size);
+	    ruby_xfree((VALUE *)ptr);
         }
     }
 }
@@ -2617,7 +2616,7 @@ rb_ary_bsearch(VALUE ary)
 
 
 static VALUE
-sort_by_i(VALUE i)
+sort_by_i(RB_BLOCK_CALL_FUNC_ARGLIST(i, dummy))
 {
     return rb_yield(i);
 }
@@ -3170,8 +3169,9 @@ rb_ary_delete_if(VALUE ary)
 }
 
 static VALUE
-take_i(VALUE val, VALUE *args, int argc, VALUE *argv)
+take_i(RB_BLOCK_CALL_FUNC_ARGLIST(val, cbarg))
 {
+    VALUE *args = (VALUE *)cbarg;
     if (args[1]-- == 0) rb_iter_break();
     if (argc > 1) val = rb_ary_new4(argc, argv);
     rb_ary_push(args[0], val);
@@ -3808,7 +3808,7 @@ recursive_hash(VALUE ary, VALUE dummy, int recur)
 static VALUE
 rb_ary_hash(VALUE ary)
 {
-    return rb_exec_recursive_outer(recursive_hash, ary, 0);
+    return rb_exec_recursive_paired(recursive_hash, ary, ary, 0);
 }
 
 /*

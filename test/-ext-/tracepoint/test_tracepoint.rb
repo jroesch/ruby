@@ -44,10 +44,14 @@ class TestTracepointObj < Test::Unit::TestCase
     assert_operator stat2[:total_allocated_object] - stat1[:total_allocated_object], :>=, newobj_count
     assert_operator 1_000_000, :<=, newobj_count
 
-    assert_operator stat2[:total_freed_object] + stat2[:heap_final_num] - stat1[:total_freed_object], :>=, free_count
+    assert_operator stat2[:total_freed_object] + stat2[:heap_final_slot] - stat1[:total_freed_object], :>=, free_count
     assert_operator stat2[:count] - stat1[:count], :==, gc_start_count
 
     assert_operator gc_start_count, :>=, gc_end_count
     assert_operator stat2[:count] - stat1[:count] - 1, :<=, gc_end_count
+  end
+
+  def test_tracepoint_specify_normal_and_internal_events
+    assert_raise(TypeError){ Bug.tracepoint_specify_normal_and_internal_events }
   end
 end

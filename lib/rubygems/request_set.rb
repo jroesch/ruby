@@ -67,6 +67,7 @@ class Gem::RequestSet
     @dependency_names = {}
     @development      = false
     @git_set          = nil
+    @install_dir      = Gem.dir
     @requests         = []
     @sets             = []
     @soft_missing     = false
@@ -143,7 +144,11 @@ class Gem::RequestSet
   # dependencies file are not used.  See Gem::Installer for other +options+.
 
   def install_from_gemdeps options, &block
-    load_gemdeps options[:gemdeps], options[:without_groups]
+    gemdeps = options[:gemdeps]
+
+    @install_dir = options[:install_dir] || Gem.dir
+
+    load_gemdeps gemdeps, options[:without_groups]
 
     resolve
 
@@ -154,7 +159,12 @@ class Gem::RequestSet
         puts "  #{s}"
       end
     else
-      install options, &block
+      installed = install options, &block
+
+      lockfile = Gem::RequestSet::Lockfile.new self, gemdeps
+      lockfile.write
+
+      installed
     end
   end
 
@@ -166,29 +176,22 @@ class Gem::RequestSet
 
     installed = []
 
-    sorted_requests.each do |req|
-      if existing.find { |s| s.full_name == req.spec.full_name }
-        yield req, nil if block_given?
+    options[:install_dir] = dir
+    options[:only_install_dir] = true
+
+    sorted_requests.each do |request|
+      spec = request.spec
+
+      if existing.find { |s| s.full_name == spec.full_name } then
+        yield request, nil if block_given?
         next
       end
 
-      path = req.download(dir)
-
-      unless path then # already installed
-        yield req, nil if block_given?
-        next
+      spec.install options do |installer|
+        yield request, installer if block_given?
       end
 
-      options[:install_dir] = dir
-      options[:only_install_dir] = true
-
-      inst = Gem::Installer.new path, options
-
-      yield req, inst if block_given?
-
-      inst.install
-
-      installed << req
+      installed << request
     end
 
     installed
@@ -200,6 +203,11 @@ class Gem::RequestSet
   def load_gemdeps path, without_groups = []
     @git_set    = Gem::Resolver::GitSet.new
     @vendor_set = Gem::Resolver::VendorSet.new
+
+    @git_set.root_dir = @install_dir
+
+    lockfile = Gem::RequestSet::Lockfile.new self, path
+    lockfile.parse
 
     gf = Gem::RequestSet::GemDependencyAPI.new self, path
     gf.without_groups = without_groups if without_groups
@@ -271,3 +279,4 @@ class Gem::RequestSet
 end
 
 require 'rubygems/request_set/gem_dependency_api'
+require 'rubygems/request_set/lockfile'

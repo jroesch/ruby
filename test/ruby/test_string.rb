@@ -478,6 +478,7 @@ class TestString < Test::Unit::TestCase
     result << 0x0300
     expected = S("\u0300".encode(Encoding::UTF_16LE))
     assert_equal(expected, result, bug7090)
+    assert_raise(TypeError) { 'foo' << :foo }
   end
 
   def test_count
@@ -885,6 +886,8 @@ class TestString < Test::Unit::TestCase
     assert_not_equal(S("hello").hash, S("helLO").hash)
     bug4104 = '[ruby-core:33500]'
     assert_not_equal(S("a").hash, S("a\0").hash, bug4104)
+    bug9172 = '[ruby-core:58658] [Bug #9172]'
+    assert_not_equal(S("sub-setter").hash, S("discover").hash, bug9172)
   end
 
   def test_hash_random
