@@ -3839,11 +3839,11 @@ string		: tCHAR
 string1		: tSTRING_BEG string_contents tSTRING_END
 		    {
 		    /*%%%*/
-            if (parser->immutable_strings) {
-                $$ = NEW_CALL($2, idFreeze, 0);
-            } else {
-			    $$ = $2;
-            }
+		    if (parser->immutable_strings) {
+		        $$ = NEW_CALL($2, idFreeze, 0);
+		    } else {
+		        $$ = $2;
+		    }
 		    /*%
 			$$ = dispatch1(string_literal, $2);
 		    %*/
@@ -3870,7 +3870,13 @@ xstring		: tXSTRING_BEG xstring_contents tSTRING_END
 				break;
 			    }
 			}
-			$$ = node;
+
+		    if (parser->immutable_strings) {
+		        $$ = NEW_CALL(node, idFreeze, 0);
+		    } else {
+		        $$ = node;
+		    }
+
 		    /*%
 			$$ = dispatch1(xstring_literal, $2);
 		    %*/
